@@ -56,7 +56,10 @@ class Map {
     // 将旧的关键帧置为不活跃状态
     void RemoveOldKeyframe();
 
+
     std::mutex data_mutex_;
+
+    // 注意：都是有相应id的
     LandmarksType landmarks_;         // all landmarks
     LandmarksType active_landmarks_;  // active landmarks
     KeyframesType  keyframes_;         // all key-frames

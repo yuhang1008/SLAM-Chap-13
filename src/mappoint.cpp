@@ -36,9 +36,9 @@ void MapPoint::RemoveObservation(std::shared_ptr<Feature> feat) {
     for (auto iter = observations_.begin(); iter != observations_.end();
          iter++) {
         if (iter->lock() == feat) {
-            observations_.erase(iter);
-            feat->map_point_.reset();
-            observed_times_--;
+            observations_.erase(iter); //观测中移除该帧
+            feat->map_point_.reset(); //？feature不清除吗？ feature还存在在frame里面，会之后被清除？
+            observed_times_--; //观测次数减1
             break;
         }
     }

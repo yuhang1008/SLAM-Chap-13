@@ -12,9 +12,14 @@
 namespace myslam {
 
 Backend::Backend() {
-    backend_running_.store(true);
-    backend_thread_ = std::thread(std::bind(&Backend::BackendLoop, this));
+    backend_running_.store(true); //原子值设为真
+    backend_thread_ = std::thread(std::bind(&Backend::BackendLoop, this)); //开启后端线程
+    // this指针指向该类的一个实例的地址
+    // 每个非静态函数的第一个参数都是隐式的this, 这里直接传入则可以跑该实例的这个函数
+    // 并开启 backend_thread_ 线程
+    // https://blog.51cto.com/u_15127662/4035706
 }
+
 
 void Backend::UpdateMap() {
     std::unique_lock<std::mutex> lock(data_mutex_);
@@ -32,7 +37,7 @@ void Backend::BackendLoop() {
         std::unique_lock<std::mutex> lock(data_mutex_);
         map_update_.wait(lock);
 
-        /// 后端仅优化激活的Frames和Landmarks
+        /// 后端仅优化map中激活的Frames和Landmarks
         Map::KeyframesType active_kfs = map_->GetActiveKeyFrames();
         Map::LandmarksType active_landmarks = map_->GetActiveMapPoints();
         Optimize(active_kfs, active_landmarks);
@@ -51,7 +56,7 @@ void Backend::Optimize(Map::KeyframesType &keyframes,
     g2o::SparseOptimizer optimizer;
     optimizer.setAlgorithm(solver);
 
-    // pose 顶点，使用Keyframe id
+    // 每个keyframe的 pose为顶点，使用Keyframe id
     std::map<unsigned long, VertexPose *> vertices;
     unsigned long max_kf_id = 0;
     for (auto &keyframe : keyframes) {
@@ -76,21 +81,21 @@ void Backend::Optimize(Map::KeyframesType &keyframes,
     SE3 right_ext = cam_right_->pose();
 
     // edges
+    double chi2_th = 5.991;
     int index = 1;
-    double chi2_th = 5.991;  // robust kernel 阈值
     std::map<EdgeProjection *, Feature::Ptr> edges_and_features;
 
     for (auto &landmark : landmarks) {
-        if (landmark.second->is_outlier_) continue;
+        if (landmark.second->is_outlier_) continue; //只优化非外电地图点
         unsigned long landmark_id = landmark.second->id_;
-        auto observations = landmark.second->GetObs();
-        for (auto &obs : observations) {
+        auto observations = landmark.second->GetObs(); //得到该地图点对观测
+        for (auto &obs : observations) { //遍历所有观测feature
             if (obs.lock() == nullptr) continue;
             auto feat = obs.lock();
-            if (feat->is_outlier_ || feat->frame_.lock() == nullptr) continue;
+            if (feat->is_outlier_ || feat->frame_.lock() == nullptr) continue; //feature必须存在且不是外点
 
             auto frame = feat->frame_.lock();
-            EdgeProjection *edge = nullptr;
+            EdgeProjection *edge = nullptr; //创立该观测对应的残差边
             if (feat->is_on_left_image_) {
                 edge = new EdgeProjection(K, left_ext);
             } else {
@@ -114,7 +119,7 @@ void Backend::Optimize(Map::KeyframesType &keyframes,
             edge->setMeasurement(toVec2(feat->position_.pt));
             edge->setInformation(Mat22::Identity());
             auto rk = new g2o::RobustKernelHuber();
-            rk->setDelta(chi2_th);
+            rk->setDelta(chi2_th); //？
             edge->setRobustKernel(rk);
             edges_and_features.insert({edge, feat});
 
@@ -128,6 +133,7 @@ void Backend::Optimize(Map::KeyframesType &keyframes,
     optimizer.initializeOptimization();
     optimizer.optimize(10);
 
+    // robust kernel 阈值 可以理解为像素距离差吗？
     int cnt_outlier = 0, cnt_inlier = 0;
     int iteration = 0;
     while (iteration < 5) {
@@ -144,7 +150,7 @@ void Backend::Optimize(Map::KeyframesType &keyframes,
         double inlier_ratio = cnt_inlier / double(cnt_inlier + cnt_outlier);
         if (inlier_ratio > 0.5) {
             break;
-        } else {
+        } else { //如果内点还不到一半，则增加误差阈值，让内点变多
             chi2_th *= 2;
             iteration++;
         }

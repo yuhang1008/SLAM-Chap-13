@@ -22,18 +22,18 @@
 namespace myslam {
 /// vertex and edges used in g2o ba
 /// 位姿顶点
-class VertexPose : public g2o::BaseVertex<6, SE3> {
+class VertexPose : public g2o::BaseVertex<6, SE3> { //变量维度，变量类型
    public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
-    virtual void setToOriginImpl() override { _estimate = SE3(); }
+    virtual void setToOriginImpl() override { _estimate = SE3(); } //重写设置原点的函数
 
-    /// left multiplication on SE3
+    /// left multiplication on SE3 重写更新优化变量的函数
     virtual void oplusImpl(const double *update) override {
         Vec6 update_eigen;
         update_eigen << update[0], update[1], update[2], update[3], update[4],
-            update[5];
-        _estimate = SE3::exp(update_eigen) * _estimate;
+            update[5]; //这些update是什么类型
+        _estimate = SE3::exp(update_eigen) * _estimate; //重写的李代数左乘更新
     }
 
     virtual bool read(std::istream &in) override { return true; }
@@ -58,8 +58,8 @@ class VertexXYZ : public g2o::BaseVertex<3, Vec3> {
     virtual bool write(std::ostream &out) const override { return true; }
 };
 
-/// 仅估计位姿的一元边
-class EdgeProjectionPoseOnly : public g2o::BaseUnaryEdge<2, Vec2, VertexPose> {
+/// 仅估计位姿的一元边，不估计点位置
+class EdgeProjectionPoseOnly : public g2o::BaseUnaryEdge<2, Vec2, VertexPose> { //残差维度，残差类型，顶点类型
    public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
@@ -70,8 +70,8 @@ class EdgeProjectionPoseOnly : public g2o::BaseUnaryEdge<2, Vec2, VertexPose> {
         const VertexPose *v = static_cast<VertexPose *>(_vertices[0]);
         SE3 T = v->estimate();
         Vec3 pos_pixel = _K * (T * _pos3d);
-        pos_pixel /= pos_pixel[2];
-        _error = _measurement - pos_pixel.head<2>();
+        pos_pixel /= pos_pixel[2]; //估计的像素坐标
+        _error = _measurement - pos_pixel.head<2>(); //measurement来源于观测， 都是像素坐标
     }
 
     virtual void linearizeOplus() override {
@@ -85,10 +85,9 @@ class EdgeProjectionPoseOnly : public g2o::BaseUnaryEdge<2, Vec2, VertexPose> {
         double Z = pos_cam[2];
         double Zinv = 1.0 / (Z + 1e-18);
         double Zinv2 = Zinv * Zinv;
-        _jacobianOplusXi << -fx * Zinv, 0, fx * X * Zinv2, fx * X * Y * Zinv2,
-            -fx - fx * X * X * Zinv2, fx * Y * Zinv, 0, -fy * Zinv,
-            fy * Y * Zinv2, fy + fy * Y * Y * Zinv2, -fy * X * Y * Zinv2,
-            -fy * X * Zinv;
+        //十四讲 P187
+        _jacobianOplusXi << -fx * Zinv, 0, fx * X * Zinv2, fx * X * Y * Zinv2, -fx - fx * X * X * Zinv2, fx * Y * Zinv,
+                             0, -fy * Zinv, fy * Y * Zinv2, fy + fy * Y * Y * Zinv2, -fy * X * Y * Zinv2, -fy * X * Zinv;
     }
 
     virtual bool read(std::istream &in) override { return true; }
@@ -106,7 +105,7 @@ class EdgeProjection
    public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
-    /// 构造时传入相机内外参
+    /// 构造时传入相机内外参 外参仅适用于右相机？？
     EdgeProjection(const Mat33 &K, const SE3 &cam_ext) : _K(K) {
         _cam_ext = cam_ext;
     }
@@ -133,6 +132,8 @@ class EdgeProjection
         double Z = pos_cam[2];
         double Zinv = 1.0 / (Z + 1e-18);
         double Zinv2 = Zinv * Zinv;
+
+        // 十四讲p187
         _jacobianOplusXi << -fx * Zinv, 0, fx * X * Zinv2, fx * X * Y * Zinv2,
             -fx - fx * X * X * Zinv2, fx * Y * Zinv, 0, -fy * Zinv,
             fy * Y * Zinv2, fy + fy * Y * Y * Zinv2, -fy * X * Y * Zinv2,

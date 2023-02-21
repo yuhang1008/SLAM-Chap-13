@@ -24,7 +24,7 @@ Frontend::Frontend() {
 }
 
 bool Frontend::AddFrame(myslam::Frame::Ptr frame) {
-    current_frame_ = frame;
+    current_frame_ = frame; // frame里面不会引用frontend的指针，所以直接可以全引用shared_ptr
 
     switch (status_) {
         case FrontendStatus::INITING:
@@ -46,7 +46,7 @@ bool Frontend::AddFrame(myslam::Frame::Ptr frame) {
 bool Frontend::Track() {
     if (last_frame_) {
         //使用上一个relative_motion作为先验？
-        current_frame_->SetPose(relative_motion_ * last_frame_->Pose());
+        current_frame_->SetPose(relative_motion_ * last_frame_->Pose()); // Tcl'* Tlw ~= Tcw ' 一个先验故测
     }
 
     int num_track_last = TrackLastFrame();
@@ -64,13 +64,13 @@ bool Frontend::Track() {
     }
 
     InsertKeyframe();
-    relative_motion_ = current_frame_->Pose() * last_frame_->Pose().inverse();
+    relative_motion_ = current_frame_->Pose() * last_frame_->Pose().inverse(); //Tcw * Twl = Tcl
 
     if (viewer_) viewer_->AddCurrentFrame(current_frame_);
     return true;
 }
 
-bool Frontend::InsertKeyframe() {
+bool Frontend::InsertKeyframe() { //关键帧要重新进行三角化
     if (tracking_inliers_ >= num_features_needed_for_keyframe_) {
         // still have enough features, don't insert keyframe
         return false;
@@ -109,7 +109,7 @@ int Frontend::TriangulateNewPoints() {
     SE3 current_pose_Twc = current_frame_->Pose().inverse();
     int cnt_triangulated_pts = 0;
     for (size_t i = 0; i < current_frame_->features_left_.size(); ++i) {
-        if (current_frame_->features_left_[i]->map_point_.expired() &&
+        if (current_frame_->features_left_[i]->map_point_.expired() && //有一些在移除旧帧时把地图点清除了
             current_frame_->features_right_[i] != nullptr) {
             // 左图的特征点未关联地图点且存在右图匹配点，尝试三角化
             std::vector<Vec3> points{
@@ -237,18 +237,18 @@ int Frontend::TrackLastFrame() {
             // use project point
             auto mp = kp->map_point_.lock();
             auto px =
-                camera_left_->world2pixel(mp->pos_, current_frame_->Pose());
+                camera_left_->world2pixel(mp->pos_, current_frame_->Pose()); //这里的pose是之前设置的先验
             kps_last.push_back(kp->position_.pt);
             kps_current.push_back(cv::Point2f(px[0], px[1]));
         } else {
             kps_last.push_back(kp->position_.pt);
             kps_current.push_back(kp->position_.pt);
-        }
+        } //注意这些点要一一对应
     }
 
     std::vector<uchar> status;
     Mat error;
-    cv::calcOpticalFlowPyrLK(
+    cv::calcOpticalFlowPyrLK( //kps_current是给定初值方便更好追踪吗？？
         last_frame_->left_img_, current_frame_->left_img_, kps_last,
         kps_current, status, error, cv::Size(11, 11), 3,
         cv::TermCriteria(cv::TermCriteria::COUNT + cv::TermCriteria::EPS, 30,
@@ -261,7 +261,7 @@ int Frontend::TrackLastFrame() {
         if (status[i]) {
             cv::KeyPoint kp(kps_current[i], 7);
             Feature::Ptr feature(new Feature(current_frame_, kp));
-            feature->map_point_ = last_frame_->features_left_[i]->map_point_;
+            feature->map_point_ = last_frame_->features_left_[i]->map_point_; // 可以为空
             current_frame_->features_left_.push_back(feature);
             num_good_pts++;
         }
@@ -301,7 +301,7 @@ int Frontend::DetectFeatures() {
     gftt_->detect(current_frame_->left_img_, keypoints, mask);
     int cnt_detected = 0;
     for (auto &kp : keypoints) {
-        current_frame_->features_left_.push_back(
+        current_frame_->features_left_.push_back( //frame直接加入feature的shared_ptr, feature里为frame的weak_ptr
             Feature::Ptr(new Feature(current_frame_, kp)));
         cnt_detected++;
     }
@@ -342,10 +342,10 @@ int Frontend::FindFeaturesInRight() {
             cv::KeyPoint kp(kps_right[i], 7);
             Feature::Ptr feat(new Feature(current_frame_, kp));
             feat->is_on_left_image_ = false;
-            current_frame_->features_right_.push_back(feat);
+            current_frame_->features_right_.push_back(feat); //frame和feature的指针关系类似
             num_good_pts++;
         } else {
-            current_frame_->features_right_.push_back(nullptr);
+            current_frame_->features_right_.push_back(nullptr); //要和左指针维度对上，一一对应
         }
     }
     LOG(INFO) << "Find " << num_good_pts << " in the right image.";
@@ -358,9 +358,10 @@ bool Frontend::BuildInitMap() {
     for (size_t i = 0; i < current_frame_->features_left_.size(); ++i) {
         if (current_frame_->features_right_[i] == nullptr) continue;
         // create map point from triangulation
+
         // vector中分别加入左右相机的归一化三维坐标
         std::vector<Vec3> points{
-            camera_left_->pixel2camera( //归一化三维坐标
+            camera_left_->pixel2camera( //归一化三维坐标, depth = 0 在头文件里面定义
                 Vec2(current_frame_->features_left_[i]->position_.pt.x,
                      current_frame_->features_left_[i]->position_.pt.y)),
             camera_right_->pixel2camera( //归一化三维坐标
@@ -369,13 +370,13 @@ bool Frontend::BuildInitMap() {
 
         Vec3 pworld = Vec3::Zero();
 
-        // 深度要>0
+        // 深度要>0(好像不对），则新建地图点并将其指针传入map类的landmarks里面
         if (triangulation(poses, points, pworld) && pworld[2] > 0 ) {
             auto new_map_point = MapPoint::CreateNewMappoint();
             new_map_point->SetPos(pworld);
             new_map_point->AddObservation(current_frame_->features_left_[i]);
             new_map_point->AddObservation(current_frame_->features_right_[i]);
-            current_frame_->features_left_[i]->map_point_ = new_map_point;
+            current_frame_->features_left_[i]->map_point_ = new_map_point; //注意 feature可能没有map_point
             current_frame_->features_right_[i]->map_point_ = new_map_point;
             cnt_init_landmarks++;
             map_->InsertMapPoint(new_map_point);
