@@ -24,7 +24,7 @@ Frontend::Frontend() {
 }
 
 bool Frontend::AddFrame(myslam::Frame::Ptr frame) {
-    current_frame_ = frame;
+    current_frame_ = frame; // frame里面不会引用frontend的指针，所以直接可以全引用shared_ptr
 
     switch (status_) {
         case FrontendStatus::INITING:
@@ -301,7 +301,7 @@ int Frontend::DetectFeatures() {
     gftt_->detect(current_frame_->left_img_, keypoints, mask);
     int cnt_detected = 0;
     for (auto &kp : keypoints) {
-        current_frame_->features_left_.push_back(
+        current_frame_->features_left_.push_back( //frame直接加入feature的shared_ptr, feature里为frame的weak_ptr
             Feature::Ptr(new Feature(current_frame_, kp)));
         cnt_detected++;
     }
@@ -342,10 +342,10 @@ int Frontend::FindFeaturesInRight() {
             cv::KeyPoint kp(kps_right[i], 7);
             Feature::Ptr feat(new Feature(current_frame_, kp));
             feat->is_on_left_image_ = false;
-            current_frame_->features_right_.push_back(feat);
+            current_frame_->features_right_.push_back(feat); //frame和feature的指针关系类似
             num_good_pts++;
         } else {
-            current_frame_->features_right_.push_back(nullptr);
+            current_frame_->features_right_.push_back(nullptr); //要和左指针维度对上，一一对应
         }
     }
     LOG(INFO) << "Find " << num_good_pts << " in the right image.";
@@ -358,9 +358,10 @@ bool Frontend::BuildInitMap() {
     for (size_t i = 0; i < current_frame_->features_left_.size(); ++i) {
         if (current_frame_->features_right_[i] == nullptr) continue;
         // create map point from triangulation
+
         // vector中分别加入左右相机的归一化三维坐标
         std::vector<Vec3> points{
-            camera_left_->pixel2camera( //归一化三维坐标
+            camera_left_->pixel2camera( //归一化三维坐标, depth = 0 在头文件里面定义
                 Vec2(current_frame_->features_left_[i]->position_.pt.x,
                      current_frame_->features_left_[i]->position_.pt.y)),
             camera_right_->pixel2camera( //归一化三维坐标
@@ -369,13 +370,13 @@ bool Frontend::BuildInitMap() {
 
         Vec3 pworld = Vec3::Zero();
 
-        // 深度要>0
+        // 深度要>0，则新建地图点并将其指针传入map类的landmarks里面
         if (triangulation(poses, points, pworld) && pworld[2] > 0 ) {
             auto new_map_point = MapPoint::CreateNewMappoint();
             new_map_point->SetPos(pworld);
             new_map_point->AddObservation(current_frame_->features_left_[i]);
             new_map_point->AddObservation(current_frame_->features_right_[i]);
-            current_frame_->features_left_[i]->map_point_ = new_map_point;
+            current_frame_->features_left_[i]->map_point_ = new_map_point; //注意 feature可能没有map_point
             current_frame_->features_right_[i]->map_point_ = new_map_point;
             cnt_init_landmarks++;
             map_->InsertMapPoint(new_map_point);
