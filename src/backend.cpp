@@ -133,7 +133,7 @@ void Backend::Optimize(Map::KeyframesType &keyframes,
     optimizer.initializeOptimization();
     optimizer.optimize(10);
 
-      // robust kernel 阈值 可以理解为像素距离差吗？
+    // robust kernel 阈值 可以理解为像素距离差吗？
     int cnt_outlier = 0, cnt_inlier = 0;
     int iteration = 0;
     while (iteration < 5) {

@@ -44,7 +44,7 @@ class Camera {
 
     Vec3 pixel2camera(const Vec2 &p_p, double depth = 1);
 
-    Vec3 pixel2world(const Vec2 &p_p, const SE3 &T_c_w, double depth = 1);
+    Vec3 pixel2world(const Vec2 &p_p, const SE3 &T_c_w, double depth = 1); 
 
     Vec2 world2pixel(const Vec3 &p_w, const SE3 &T_c_w);
 };

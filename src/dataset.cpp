@@ -13,6 +13,7 @@ Dataset::Dataset(const std::string& dataset_path)
 
 bool Dataset::Init() {
     // read camera intrinsics and extrinsics
+    std:: cout<< dataset_path_ << "/calib.txt"<< endl;
     ifstream fin(dataset_path_ + "/calib.txt");
     if (!fin) {
         LOG(ERROR) << "cannot find " << dataset_path_ << "/calib.txt!";
